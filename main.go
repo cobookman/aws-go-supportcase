@@ -6,15 +6,15 @@ package main
  */
 
 import (
-	"path/filepath"
-	"errors"
 	"bytes"
+	"errors"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/support"
 	"os"
+	"path/filepath"
 	"text/template"
 )
 
@@ -111,6 +111,7 @@ func RequestNodeCordon(nvidialogs []string) (string, error) {
 	// Support's API is only available in us-east-1
 	// See: https://docs.aws.amazon.com/general/latest/gr/awssupport.html
 	client := support.New(mySession, aws.NewConfig().WithRegion("us-east-1"))
+
 	atsId, err := uploadLogs(client, nvidialogs)
 	if err != nil {
 		return "", err
@@ -137,7 +138,9 @@ func RequestNodeCordon(nvidialogs []string) (string, error) {
 
 	// A list of suport case severity levels and associated code can be found using the CLI:
 	// $ aws support describe-severity-levels
-	supportCase.SetSeverityCode("urgent")
+	// critical = 15 minute target (SLO) for first response by AWS Enterprise Support
+	// urgent = 1 hour target (SLO) for first response by AWS Enterprise Support
+	supportCase.SetSeverityCode("critical")
 	supportCase.SetAttachmentSetId(atsId)
 
 	if err := supportCase.Validate(); err != nil {
