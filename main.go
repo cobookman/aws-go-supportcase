@@ -108,6 +108,14 @@ func genCaseBody(session *session.Session) (string, error) {
 func RequestNodeCordon(nvidialogs []string) (string, error) {
 	mySession := session.Must(session.NewSession())
 
+	/**
+	 * We can get credentials 3 ways:
+	 * https://github.com/aws/aws-sdk-go#configuring-credentials
+	 * Initial credentials loaded from SDK's default credential chain. Such as
+     * the environment, shared credentials (~/.aws/credentials), or EC2 Instance
+     * Role. These credentials will be used to to make the STS Assume Role API.
+	 */
+
 	// Support's API is only available in us-east-1
 	// See: https://docs.aws.amazon.com/general/latest/gr/awssupport.html
 	client := support.New(mySession, aws.NewConfig().WithRegion("us-east-1"))
