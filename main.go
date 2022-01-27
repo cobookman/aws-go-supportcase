@@ -1,18 +1,40 @@
 package main
 
+/**
+ * Support SDK Godocs: https://docs.aws.amazon.com/sdk-for-go/api/service/support
+ * Support Go Src code: https://github.com/aws/aws-sdk-go/blob/37a82efacad413c32032d9e120bc84ae54162164/service/support/api.go#L1514
+ */
+
 import (
+	"errors"
 	"bytes"
-	"os"
-	"text/template"
+	"fmt"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/support"
+	"os"
+	"text/template"
 )
 
 var (
-	CC_EMAIL_1 = "foo@foo.com"
-	CC_EMAIL_2 = "baz@baz.com"
-	CC_EMAILS = []*string{&CC_EMAIL_1, &CC_EMAIL_2}
+	CC_EMAIL_1         = "foo@foo.com"
+	CC_EMAIL_2         = "baz@baz.com"
+	CC_EMAILS          = []*string{&CC_EMAIL_1, &CC_EMAIL_2}
+	CASE_BODY_TEMPLATE = `
+Please cordon off the following ec2 instance:
+  * Instance Id: {{.InstanceID}}
+  * Region: {{.Region}} 
+  * AZ: {{.AvailabilityZone}}
+  * Instance Type: {{.InstanceType}}
+  * Account Id: {{.AccountID}}
+  * Image Id: {{.ImageID}}
+  * Kernel Id: {{.KernelID}}
+   
+Attached are Nvidia Bug report logs.
+   
+Refer to Failure Modes - Require Degrade of the underlying EC2 Host
+in the support playbook for more info`
 )
 
 /**
@@ -44,62 +66,74 @@ func uploadLogs(client *support.Support, nvidialogs []string) (string, error) {
 }
 
 /**
+ * Uses Ec2 Metadata API to enrich a support case body with instance details.
+ * Returns:
+ *   string: Case body text
+ *   error: Errors generated in process of calling Ec2 API or text/template
+ */
+func genCaseBody(session *session.Session) (string, error) {
+	// Populate case body with metadata on Ec2 instance
+	client := ec2metadata.New(session)
+	if !client.Available() {
+		return "", errors.New("Cannot connect to ec2 metadata service")
+	}
+
+	iid, err := client.GetInstanceIdentityDocument()
+	if err != nil {
+		return "", err
+	}
+
+	tmpl, err := template.New("body").Parse(CASE_BODY_TEMPLATE)
+	if err != nil {
+		return "", err
+	}
+
+	var body bytes.Buffer
+	if err := tmpl.Execute(&body, iid); err != nil {
+		return "", err
+	}
+	return body.String(), nil
+}
+
+/**
  * Creates a support case to request cordoning an ec2 instance
  * Returns:
- *   error: Erro in process of creating the case
  *   string: Created case's CaseId
+ *   error: errors in process of creating the case
  */
 func RequestNodeCordon(nvidialogs []string) (string, error) {
 	mySession := session.Must(session.NewSession())
-	client := support.New(mySession)
 
+	// Support's API is only available in us-east-1
+	// See: https://docs.aws.amazon.com/general/latest/gr/awssupport.html
+	client := support.New(mySession, aws.NewConfig().WithRegion("us-east-1"))
 	atsId, err := uploadLogs(client, nvidialogs)
 	if err != nil {
 		return "", err
 	}
 
-	tmpl, err := template.New("body").Parse(`
- Please cordon of ec2 instance:
- Instance Id: {{.InstanceID}}
- Region: {{.Region}} 
- AZ: {{.AvailabilityZone}}
- Instance Type: {{.InstanceType}}
- Account Id: {{.AccountID}}
- Image Id: {{.ImageID}}
- Kernel Id: {{.KernelID}}
-
- Attached are Nvidia Bug report logs.
-
- Refer to Failure Modes - Require Degrade of the underlying EC2 Host
- in the support playbook for more info
- `)
+	body, err := genCaseBody(mySession)
 	if err != nil {
 		return "", err
 	}
+	fmt.Println(body)
 
-	mdClient := ec2metadata.New(mySession)
-	iid, err := mdClient.GetInstanceIdentityDocument()
-	if err != nil {
-		return "", err
-	}
-	var body bytes.Buffer
-	if err := tmpl.Execute(&body, iid); err != nil {
-		return "", err
-	}
-
-	
+	// Populate case fields
 	supportCase := new(support.CreateCaseInput)
 	supportCase.SetCcEmailAddresses(CC_EMAILS)
 	supportCase.SetSubject("GPU Faults/Errors Encountered | Hardware Cordon Requested")
-	supportCase.SetCommunicationBody(body.String())
+	supportCase.SetCommunicationBody(body)
 	supportCase.SetIssueType("technical")
 	supportCase.SetLanguage("en")
 
-	// Not sure on this one, maybe ec2
-	// Can get list of codes by running:
-	// aws support describe-services --region=us-east-1
-	supportCase.SetServiceCode("amazon-elastic-compute-cloud-linux instance-issue")
-	supportCase.SetSeverityCode("high")
+	// A list of support case service codes & category codes can be found using the CLI:
+	// $ aws support describe-services --region=us-east-1
+	supportCase.SetServiceCode("amazon-elastic-compute-cloud-linux")
+	supportCase.SetCategoryCode("instance-issue")
+
+	// A list of suport case severity levels and associated code can be found using the CLI:
+	// $ aws support describe-severity-levels
+	supportCase.SetSeverityCode("urgent")
 	supportCase.SetAttachmentSetId(atsId)
 
 	if err := supportCase.Validate(); err != nil {
@@ -114,7 +148,10 @@ func RequestNodeCordon(nvidialogs []string) (string, error) {
 
 }
 
-
 func main() {
-	RequestNodeCordon([]string{"/path/to/nvidia.logs.gz"})
+	caseID, err := RequestNodeCordon([]string{"./nvidia-bug-report.log.gz"})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("Case Id: %s\n", caseID)
 }
