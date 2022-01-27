@@ -84,7 +84,7 @@ func RequestNodeCordon(nvidialogs *[]string) (string, error) {
 	}
 
 	var supportCase = support.CreateCaseInput{}
-	supportCase.SetCcEmailAddresses([]string{"bolt-aws@apple.com", "..."})
+	supportCase.SetCcEmailAddresses([]string{"bob@foo.com", "..."})
 	supportCase.SetSubject("GPU Faults/Errors Encountered | Hardware Cordon Requested")
 	supportCase.SetCommunicationBody(body.String())
 	supportCase.SetIssueType("technical")
