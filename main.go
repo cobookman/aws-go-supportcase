@@ -22,6 +22,7 @@ var (
 	CC_EMAIL_1         = "foo@foo.com"
 	CC_EMAIL_2         = "baz@baz.com"
 	CC_EMAILS          = []*string{&CC_EMAIL_1, &CC_EMAIL_2}
+	CASE_SUBJECT = "GPU Faults/Errors Encountered | Hardware Cordon Requested"
 	CASE_BODY_TEMPLATE = `
 Please cordon off the following ec2 instance:
   * Instance Id: {{.InstanceID}}
@@ -75,18 +76,8 @@ func uploadLogs(client *support.Support, nvidialogs []string) (string, error) {
  *   string: Case body text
  *   error: Errors generated in process of calling Ec2 API or text/template
  */
-func genCaseBody(session *session.Session) (string, error) {
+func genCaseBody(iid ec2metadata.EC2InstanceIdentityDocument) (string, error) {
 	// Populate case body with metadata on Ec2 instance
-	client := ec2metadata.New(session)
-	if !client.Available() {
-		return "", errors.New("Cannot connect to ec2 metadata service")
-	}
-
-	iid, err := client.GetInstanceIdentityDocument()
-	if err != nil {
-		return "", err
-	}
-
 	tmpl, err := template.New("body").Parse(CASE_BODY_TEMPLATE)
 	if err != nil {
 		return "", err
@@ -125,7 +116,17 @@ func RequestNodeCordon(nvidialogs []string) (string, error) {
 		return "", err
 	}
 
-	body, err := genCaseBody(mySession)
+	emdClient := ec2metadata.New(mySession)
+	if !emdClient.Available() {
+		return "", errors.New("Cannot connect to ec2 metadata service")
+	}
+
+	iid, err := emdClient.GetInstanceIdentityDocument()
+	if err != nil {
+		return "", err
+	}
+
+	body, err := genCaseBody(iid)
 	if err != nil {
 		return "", err
 	}
@@ -134,7 +135,7 @@ func RequestNodeCordon(nvidialogs []string) (string, error) {
 	// Populate case fields
 	supportCase := new(support.CreateCaseInput)
 	supportCase.SetCcEmailAddresses(CC_EMAILS)
-	supportCase.SetSubject("GPU Faults/Errors Encountered | Hardware Cordon Requested")
+	supportCase.SetSubject(CASE_SUBJECT)
 	supportCase.SetCommunicationBody(body)
 	supportCase.SetIssueType("technical")
 	supportCase.SetLanguage("en")
