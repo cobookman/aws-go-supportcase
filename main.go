@@ -6,6 +6,7 @@ package main
  */
 
 import (
+	"path/filepath"
 	"errors"
 	"bytes"
 	"fmt"
@@ -44,20 +45,23 @@ in the support playbook for more info`
  *   string: AttachmentSetId
  */
 func uploadLogs(client *support.Support, nvidialogs []string) (string, error) {
-	ats := new(support.AddAttachmentsToSetInput)
-	atmnts := make([]*support.Attachment, len(nvidialogs))
+	// Read in attachments into memory
+	attchs := make([]*support.Attachment, len(nvidialogs))
 	for i, fp := range nvidialogs {
-		atmnt := new(support.Attachment)
-		dat, err := os.ReadFile(fp)
+		attch := new(support.Attachment)
+		data, err := os.ReadFile(fp)
 		if err != nil {
 			return "", err
 		}
-		atmnt.SetData(dat)
-		atmnt.SetFileName(fp) // TODO(?): put generated proper filename
-		atmnts[i] = atmnt
+		attch.SetData(data)
+		attch.SetFileName(filepath.Base(fp))
+		attchs[i] = attch
 
 	}
-	ats.SetAttachments(atmnts)
+
+	// Upload attachments to support
+	ats := new(support.AddAttachmentsToSetInput)
+	ats.SetAttachments(attchs)
 	resp, err := client.AddAttachmentsToSet(ats)
 	if err != nil {
 		return "", err
