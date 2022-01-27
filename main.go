@@ -4,10 +4,15 @@ import (
 	"bytes"
 	"os"
 	"text/template"
-
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/support"
+)
+
+var (
+	CC_EMAIL_1 = "foo@foo.com"
+	CC_EMAIL_2 = "baz@baz.com"
+	CC_EMAILS = []*string{&CC_EMAIL_1, &CC_EMAIL_2}
 )
 
 /**
@@ -16,8 +21,8 @@ import (
  *   error: Err in process of uploading the logs
  *   string: AttachmentSetId
  */
-func uploadLogs(client *support.Support, nvidialogs *[]string) (string, error) {
-	ats := support.AddAttachmentsToSetInput{}
+func uploadLogs(client *support.Support, nvidialogs []string) (string, error) {
+	ats := new(support.AddAttachmentsToSetInput)
 	atmnts := make([]*support.Attachment, len(nvidialogs))
 	for i, fp := range nvidialogs {
 		atmnt := new(support.Attachment)
@@ -35,7 +40,7 @@ func uploadLogs(client *support.Support, nvidialogs *[]string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return nil, resp.AttachmentSetId
+	return *resp.AttachmentSetId, nil
 }
 
 /**
@@ -44,7 +49,7 @@ func uploadLogs(client *support.Support, nvidialogs *[]string) (string, error) {
  *   error: Erro in process of creating the case
  *   string: Created case's CaseId
  */
-func RequestNodeCordon(nvidialogs *[]string) (string, error) {
+func RequestNodeCordon(nvidialogs []string) (string, error) {
 	mySession := session.Must(session.NewSession())
 	client := support.New(mySession)
 
@@ -78,13 +83,13 @@ func RequestNodeCordon(nvidialogs *[]string) (string, error) {
 		return "", err
 	}
 	var body bytes.Buffer
-	err := tmp.Execute(body, iid)
-	if err != nil {
+	if err := tmpl.Execute(&body, iid); err != nil {
 		return "", err
 	}
 
-	var supportCase = support.CreateCaseInput{}
-	supportCase.SetCcEmailAddresses([]string{"bob@foo.com", "..."})
+	
+	supportCase := new(support.CreateCaseInput)
+	supportCase.SetCcEmailAddresses(CC_EMAILS)
 	supportCase.SetSubject("GPU Faults/Errors Encountered | Hardware Cordon Requested")
 	supportCase.SetCommunicationBody(body.String())
 	supportCase.SetIssueType("technical")
@@ -105,6 +110,11 @@ func RequestNodeCordon(nvidialogs *[]string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return res.CaseId, nil
+	return *res.CaseId, nil
 
+}
+
+
+func main() {
+	RequestNodeCordon([]string{"/path/to/nvidia.logs.gz"})
 }
